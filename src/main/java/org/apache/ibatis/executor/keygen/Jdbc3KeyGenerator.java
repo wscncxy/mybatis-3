@@ -1,11 +1,11 @@
-/**
- *    Copyright 2009-2020 the original author or authors.
+/*
+ *    Copyright 2009-2025 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
  *    You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  *    Unless required by applicable law or agreed to in writing, software
  *    distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,11 +15,11 @@
  */
 package org.apache.ibatis.executor.keygen;
 
+import java.lang.reflect.Type;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -157,7 +157,7 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
       Entry<String, KeyAssigner> entry = getAssignerForParamMap(configuration, rsmd, i + 1, paramMap, keyProperties[i],
           keyProperties, true);
       Entry<Iterator<?>, List<KeyAssigner>> iteratorPair = assignerMap.computeIfAbsent(entry.getKey(),
-          k -> entry(collectionize(paramMap.get(k)).iterator(), new ArrayList<>()));
+          k -> Map.entry(collectionize(paramMap.get(k)).iterator(), new ArrayList<>()));
       iteratorPair.getValue().add(entry.getValue());
     }
     long counter = 0;
@@ -193,8 +193,9 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
     if (keySet.contains(paramName)) {
       String argParamName = omitParamName ? null : paramName;
       String argKeyProperty = keyProperty.substring(firstDot + 1);
-      return entry(paramName, new KeyAssigner(config, rsmd, columnPosition, argParamName, argKeyProperty));
-    } else if (singleParam) {
+      return Map.entry(paramName, new KeyAssigner(config, rsmd, columnPosition, argParamName, argKeyProperty));
+    }
+    if (singleParam) {
       return getAssignerForSingleParam(config, rsmd, columnPosition, paramMap, keyProperty, omitParamName);
     } else {
       throw new ExecutorException("Could not find parameter '" + paramName + "'. "
@@ -209,7 +210,7 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
     // Assume 'keyProperty' to be a property of the single param.
     String singleParamName = nameOfSingleParam(paramMap);
     String argParamName = omitParamName ? null : singleParamName;
-    return entry(singleParamName, new KeyAssigner(config, rsmd, columnPosition, argParamName, keyProperty));
+    return Map.entry(singleParamName, new KeyAssigner(config, rsmd, columnPosition, argParamName, keyProperty));
   }
 
   private static String nameOfSingleParam(Map<String, ?> paramMap) {
@@ -220,19 +221,15 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
   private static Collection<?> collectionize(Object param) {
     if (param instanceof Collection) {
       return (Collection<?>) param;
-    } else if (param instanceof Object[]) {
+    }
+    if (param instanceof Object[]) {
       return Arrays.asList((Object[]) param);
     } else {
       return Arrays.asList(param);
     }
   }
 
-  private static <K, V> Entry<K, V> entry(K key, V value) {
-    // Replace this with Map.entry(key, value) in Java 9.
-    return new AbstractMap.SimpleImmutableEntry<>(key, value);
-  }
-
-  private class KeyAssigner {
+  private static class KeyAssigner {
     private final Configuration configuration;
     private final ResultSetMetaData rsmd;
     private final TypeHandlerRegistry typeHandlerRegistry;
@@ -243,7 +240,6 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
 
     protected KeyAssigner(Configuration configuration, ResultSetMetaData rsmd, int columnPosition, String paramName,
         String propertyName) {
-      super();
       this.configuration = configuration;
       this.rsmd = rsmd;
       this.typeHandlerRegistry = configuration.getTypeHandlerRegistry();
@@ -260,13 +256,15 @@ public class Jdbc3KeyGenerator implements KeyGenerator {
       MetaObject metaParam = configuration.newMetaObject(param);
       try {
         if (typeHandler == null) {
-          if (metaParam.hasSetter(propertyName)) {
-            Class<?> propertyType = metaParam.getSetterType(propertyName);
-            typeHandler = typeHandlerRegistry.getTypeHandler(propertyType,
-                JdbcType.forCode(rsmd.getColumnType(columnPosition)));
-          } else {
+          if (!metaParam.hasSetter(propertyName)) {
             throw new ExecutorException("No setter found for the keyProperty '" + propertyName + "' in '"
                 + metaParam.getOriginalObject().getClass().getName() + "'.");
+          }
+          Type propertyType = metaParam.getGenericSetterType(propertyName).getKey();
+          JdbcType jdbcType = JdbcType.forCode(rsmd.getColumnType(columnPosition));
+          typeHandler = typeHandlerRegistry.getTypeHandler(propertyType, jdbcType);
+          if (typeHandler == null) {
+            typeHandler = typeHandlerRegistry.getTypeHandler(jdbcType);
           }
         }
         if (typeHandler == null) {
